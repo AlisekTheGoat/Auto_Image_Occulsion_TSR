@@ -218,6 +218,12 @@ class OcclusionDialog(QDialog):
         self.occlude_btn.clicked.connect(self.run_ocr_auto)
         self.controls_layout.addWidget(self.occlude_btn)
 
+        self.manual_btn = QPushButton("Ruční maska")
+        self.manual_btn.setFixedHeight(40)
+        self.manual_btn.setCheckable(True)
+        self.manual_btn.setEnabled(False)
+        self.controls_layout.addWidget(self.manual_btn)
+
         self.save_btn = QPushButton("Uložit do Anki")
         self.save_btn.setFixedHeight(40)
         self.save_btn.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold;")
@@ -226,6 +232,70 @@ class OcclusionDialog(QDialog):
         self.controls_layout.addWidget(self.save_btn)
         
         self.layout.addLayout(self.controls_layout)
+
+        # Stav pro ruční kreslení
+        self.drawing_rect: Optional[OcclusionRect] = None
+        self.start_point: Optional[QPointF] = None
+        
+        # Event filter pro klávesové zkratky
+        self.view.installEventFilter(self)
+        self.scene.mousePressEvent = self.scene_mouse_press
+        self.scene.mouseMoveEvent = self.scene_mouse_move
+        self.scene.mouseReleaseEvent = self.scene_mouse_release
+
+    def eventFilter(self, source: Any, event: Any) -> bool:
+        """Zachytává stisk kláves pro mazání masek."""
+        if event.type() == event.Type.KeyPress and source is self.view:
+            if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self.delete_selected_masks()
+                return True
+        return super().eventFilter(source, event)
+
+    def delete_selected_masks(self) -> None:
+        """Smaže všechny vybrané masky ze scény."""
+        for item in self.scene.selectedItems():
+            if isinstance(item, OcclusionRect):
+                self.scene.removeItem(item)
+
+    def scene_mouse_press(self, event: Any) -> None:
+        """Logika pro začátek ručního kreslení masky."""
+        if self.manual_btn.isChecked() and event.button() == Qt.MouseButton.LeftButton:
+            self.start_point = event.scenePos()
+            data = MaskData(x=self.start_point.x(), y=self.start_point.y(), w=1, h=1)
+            self.drawing_rect = OcclusionRect(data)
+            self.scene.addItem(self.drawing_rect)
+            event.accept()
+        else:
+            QGraphicsScene.mousePressEvent(self.scene, event)
+
+    def scene_mouse_move(self, event: Any) -> None:
+        """Logika pro natahování masky během kreslení."""
+        if self.drawing_rect and self.start_point:
+            curr = event.scenePos()
+            rect = QRectF(self.start_point, curr).normalized()
+            self.drawing_rect.setPos(rect.topLeft())
+            self.drawing_rect.setRect(0, 0, rect.width(), rect.height())
+            
+            # Sync s daty
+            self.drawing_rect.data.x, self.drawing_rect.data.y = rect.x(), rect.y()
+            self.drawing_rect.data.w, self.drawing_rect.data.h = rect.width(), rect.height()
+            event.accept()
+        else:
+            QGraphicsScene.mouseMoveEvent(self.scene, event)
+
+    def scene_mouse_release(self, event: Any) -> None:
+        """Dokončení ručního kreslení."""
+        if self.drawing_rect:
+            # Pokud je maska příliš malá (překlik), smažeme ji
+            if self.drawing_rect.rect().width() < 5 or self.drawing_rect.rect().height() < 5:
+                self.scene.removeItem(self.drawing_rect)
+            
+            self.drawing_rect = None
+            self.start_point = None
+            self.manual_btn.setChecked(False) # Automatické vypnutí po nakreslení
+            event.accept()
+        else:
+            QGraphicsScene.mouseReleaseEvent(self.scene, event)
 
     def on_load_clicked(self) -> None:
         """Otevře dialog pro výběr obrázku."""
@@ -240,6 +310,7 @@ class OcclusionDialog(QDialog):
             self.current_image_path = file_path
             self.display_image(file_path)
             self.occlude_btn.setEnabled(True)
+            self.manual_btn.setEnabled(True)
             self.save_btn.setEnabled(True)
 
     def display_image(self, path: str) -> None:
