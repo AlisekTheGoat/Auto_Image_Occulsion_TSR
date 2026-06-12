@@ -68,19 +68,28 @@ class OCRHandler:
             return []
 
         try:
-            # 1. Předzpracování obrazu
+            # 1. Předzpracování obrazu - POSÍLENÍ KONTRASTU A OSTROSTI
+            from PIL import ImageEnhance
             orig_img = Image.open(image_path)
+            
+            # Zvýšení kontrastu a ostrosti pro lepší čitelnost textu
+            enhancer = ImageEnhance.Contrast(orig_img)
+            img_enhanced = enhancer.enhance(1.5)
+            enhancer = ImageEnhance.Sharpness(img_enhanced)
+            img_enhanced = enhancer.enhance(2.0)
+            
             scale_factor = 2.0
-            processed_img = self._preprocess_image(orig_img, scale_factor)
+            processed_img = self._preprocess_image(img_enhanced, scale_factor)
             
             # 2. Konfigurace Tesseractu
-            custom_config = r'--psm 12'
+            custom_config = r'--psm 11' # PSM 11 je často lepší pro volně rozptýlený text
             data = pytesseract.image_to_data(processed_img, config=custom_config, output_type=pytesseract.Output.DICT)
             
             raw_words = []
             num_boxes = len(data['level'])
 
-            # Sběr surových slov - snížíme práh spolehlivosti pro medicínské diagramy
+            # Sběr surových slov - PŘÍSNĚJŠÍ FILTRACE
+            import re
             for i in range(num_boxes):
                 try:
                     conf = int(data['conf'][i])
@@ -88,8 +97,11 @@ class OCRHandler:
                     conf = 0
                 text = data['text'][i].strip()
                 
-                # Snížení conf na 20 pro zachycení drobných popisků
-                if data['level'][i] == 5 and conf > 20 and text:
+                # Musí obsahovat aspoň jedno písmeno nebo číslici (odfiltruje čáry/šum)
+                has_alphanumeric = bool(re.search(r'[a-zA-Z0-9]', text))
+                
+                # Zvýšení conf na 45 pro čistší výsledky
+                if data['level'][i] == 5 and conf > 45 and len(text) > 1 and has_alphanumeric:
                     raw_words.append({
                         'x1': data['left'][i] / scale_factor,
                         'y1': data['top'][i] / scale_factor,
@@ -105,9 +117,9 @@ class OCRHandler:
             # 3. Výpočet globálního H_avg
             global_h_avg = sum(w['h'] for w in raw_words) / len(raw_words)
             
-            # 4. Phrase Clustering Algoritmus - AGRESIVNĚJŠÍ SHLUKOVÁNÍ
-            M_HORIZ = 2.0 # Více prostoru mezi slovy
-            M_VERT = 0.5  # Větší tolerance pro "vlnitý" text
+            # 4. Phrase Clustering Algoritmus - PŘÍSNĚJŠÍ SPOJOVÁNÍ
+            M_HORIZ = 1.2 # Méně prostoru pro spojení (přesnější hranice)
+            M_VERT = 0.3  
             
             merged_boxes = []
             words = sorted(raw_words, key=lambda w: (w['y1'], w['x1']))
@@ -123,6 +135,7 @@ class OCRHandler:
                     dx = other['x1'] - curr['x2']
                     dy = abs(other['y1'] - curr['y1'])
                     
+                    # Přísnější vertikální i horizontální limit
                     if dy < (global_h_avg * M_VERT) and dx < (global_h_avg * M_HORIZ):
                         phrase_group.append(words.pop(i))
                         curr['x2'] = max(curr['x2'], other['x2'])

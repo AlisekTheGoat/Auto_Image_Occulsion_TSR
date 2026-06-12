@@ -108,26 +108,31 @@ class OcclusionDialog(QDialog):
 
     def scene_mouse_press(self, event: Any) -> None:
         tool = self.tool_selector.currentText()
-        if tool == "Výběr":
-            # Pokud klikneme na prázdné místo, zahájíme Rubber Band
-            item = self.scene.itemAt(event.scenePos(), self.view.transform())
-            # Kontrola zda jsme klikli na pozadí (pixmap) nebo nic
-            is_background = not item or (isinstance(item, QGraphicsRectItem) and not hasattr(item, 'data'))
-            
-            if is_background:
-                if event.button() == Qt.MouseButton.LeftButton:
-                    self.origin = event.screenPos()
-                    if not self.rubber_band:
-                        self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.view)
-                    self.rubber_band.setGeometry(QRect(self.view.mapFromGlobal(self.origin.toPoint()), QSize()))
-                    self.rubber_band.show()
-                    # Zrušit předchozí výběr
+        
+        # Pokud je vybrán nástroj "Výběr" nebo se klikne na prázdné místo
+        item = self.scene.itemAt(event.scenePos(), self.view.transform())
+        is_background = not item or (isinstance(item, QGraphicsRectItem) and not hasattr(item, 'data'))
+        
+        if tool == "Výběr" or (event.button() == Qt.MouseButton.LeftButton and is_background):
+            if event.button() == Qt.MouseButton.LeftButton:
+                # Zahájení výběrového rámečku (Rubber Band)
+                self.origin = event.screenPos()
+                if not self.rubber_band:
+                    self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.view)
+                
+                # Bezpečný převod na QPoint (celá čísla)
+                origin_point = self.origin.toPoint() if hasattr(self.origin, 'toPoint') else self.origin
+                local_pos = self.view.mapFromGlobal(origin_point)
+                
+                self.rubber_band.setGeometry(QRect(local_pos, QSize()))
+                self.rubber_band.show()
+                
+                # Pokud nedržíme Shift, zrušíme předchozí výběr
+                if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                     self.scene.clearSelection()
-                    event.accept()
-                    return
-
-            QGraphicsScene.mousePressEvent(self.scene, event)
-            return
+                
+                event.accept()
+                return
 
         if event.button() != Qt.MouseButton.LeftButton:
             QGraphicsScene.mousePressEvent(self.scene, event)
@@ -148,51 +153,42 @@ class OcclusionDialog(QDialog):
 
     def scene_mouse_move(self, event: Any) -> None:
         if self.rubber_band and self.rubber_band.isVisible():
-            self.rubber_band.setGeometry(QRect(self.view.mapFromGlobal(self.origin.toPoint()), event.screenPos()).normalized())
+            # 1. Aktualizace geometrie výběrového rámečku
+            current_screen_pos = event.screenPos()
+            origin_point = self.origin.toPoint() if hasattr(self.origin, 'toPoint') else self.origin
+            curr_point = current_screen_pos.toPoint() if hasattr(current_screen_pos, 'toPoint') else current_screen_pos
+            
+            rect = QRect(self.view.mapFromGlobal(origin_point), 
+                         self.view.mapFromGlobal(curr_point)).normalized()
+            self.rubber_band.setGeometry(rect)
+            
+            # 2. DYNAMICKÝ VÝBĚR (Interaktivní označování během tažení)
+            selection_rect = self.view.mapToScene(rect).boundingRect()
+            
+            # Projdeme všechny položky s daty (masky)
+            for item in self.scene.items():
+                if hasattr(item, 'data'):
+                    # Pokud je maska v rámečku, označíme ji, jinak odznačíme
+                    is_in_rect = selection_rect.intersects(item.sceneBoundingRect())
+                    item.setSelected(is_in_rect)
+            
             event.accept()
             return
 
-        if not self.drawing_item:
-            QGraphicsScene.mouseMoveEvent(self.scene, event)
-            return
-
-        curr = event.scenePos()
-        
-        # 2.2 Boundary Guard - Omezení kreslení na hranice obrázku
-        s_rect = self.scene.sceneRect()
-        curr.setX(max(s_rect.left(), min(curr.x(), s_rect.right())))
-        curr.setY(max(s_rect.top(), min(curr.y(), s_rect.bottom())))
-        
-        tool = self.tool_selector.currentText()
-        
-        if tool in ("Obdélník", "Elipsa"):
-            rect = QRectF(self.start_point, curr).normalized()
-            self.drawing_item.setPos(rect.topLeft())
-            self.drawing_item.setRect(0, 0, rect.width(), rect.height())
-            if hasattr(self.drawing_item, 'update_handles'):
-                self.drawing_item.update_handles()
-        elif tool == "Lasso (Volná ruka)" and self.lasso_path:
-            self.lasso_path.lineTo(curr)
-            self.drawing_item.setPath(self.lasso_path)
-        event.accept()
-
     def scene_mouse_release(self, event: Any) -> None:
         if self.rubber_band and self.rubber_band.isVisible():
+            # Rámeček už vše označil v reálném čase během move, stačí ho jen skrýt
             self.rubber_band.hide()
-            # Výběr prvků v obdélníku
-            rect = self.view.mapToScene(self.rubber_band.geometry()).boundingRect()
-            for item in self.scene.items(rect):
-                if hasattr(item, 'data'):
-                    item.setSelected(True)
+            self.origin = QPointF()
             event.accept()
             return
 
         if self.drawing_item:
+            # ... (zbytek logiky drawing_item zůstává stejný)
             if self.tool_selector.currentText() == "Lasso (Volná ruka)":
                 self.lasso_path.closeSubpath()
                 self.drawing_item.setPath(self.lasso_path)
             
-            # Odstranění příliš malých prvků
             bounds = self.drawing_item.boundingRect()
             if bounds.width() < 5 and bounds.height() < 5:
                 self.scene.removeItem(self.drawing_item)

@@ -15,7 +15,7 @@ except ImportError:
     ANKI_AVAILABLE = False
 
 class AnkiHandler:
-    NOTE_TYPE_NAME = "AutoImageOculsion"
+    NOTE_TYPE_NAME = "AutoImageOcclusion"
     
     # 9 fields as requested
     FIELDS = [

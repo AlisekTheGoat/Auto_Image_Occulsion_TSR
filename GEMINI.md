@@ -55,7 +55,7 @@ Doplněk implementuje klasickou architekturu **Image Occlusion Enhanced (IOE)**,
 
 ## 🗃️ 4. Datová Struktura Note Type & Šablony
 
-Při spuštění doplňku v `__init__.py` probíhá kontrola existence Note Type `Image Occlusion Enhanced`. Pokud neexistuje, automaticky se vytvoří těchto **11 polí** v přesném pořadí:
+Při spuštění doplňku v `__init__.py` probíhá kontrola existence Note Type `AutoImageOcculsion`. Pokud neexistuje, automaticky se vytvoří těchto **11 polí** v přesném pořadí:
 
 1. `ID (hidden)` → UUID s indexem karty (`uuid-oa-1`).
 2. `Header` → Text nad obrázkem.
