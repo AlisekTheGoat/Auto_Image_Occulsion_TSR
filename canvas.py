@@ -11,7 +11,17 @@ from PyQt6.QtCore import Qt, QRectF, QPointF
 
 from ocr_handler import OCRHandler
 from export_handler import SVGExporter
+from anki_handler import AnkiHandler
 from canvas_items import MaskData, OcclusionRect, OcclusionEllipse, OcclusionPath
+
+try:
+    import aqt
+    from aqt import mw
+    from aqt.utils import showInfo, QueryOp
+    ANKI_AVAILABLE = True
+except ImportError:
+    mw = None
+    ANKI_AVAILABLE = False
 
 class OcclusionDialog(QDialog):
     def __init__(self, parent: Optional[Any] = None) -> None:
@@ -19,6 +29,7 @@ class OcclusionDialog(QDialog):
         self.setWindowTitle("Auto Image Occlusion - Lead Architect Edition")
         self.resize(1100, 800)
         self.ocr = OCRHandler()
+        self.anki = AnkiHandler() if ANKI_AVAILABLE else None
         self.current_image_path: Optional[str] = None
         self.drawing_item: Optional[Any] = None
         self.lasso_path: Optional[QPainterPath] = None
@@ -111,12 +122,20 @@ class OcclusionDialog(QDialog):
             return
 
         curr = event.scenePos()
+        
+        # 2.2 Boundary Guard - Omezení kreslení na hranice obrázku
+        s_rect = self.scene.sceneRect()
+        curr.setX(max(s_rect.left(), min(curr.x(), s_rect.right())))
+        curr.setY(max(s_rect.top(), min(curr.y(), s_rect.bottom())))
+        
         tool = self.tool_selector.currentText()
         
         if tool in ("Obdélník", "Elipsa"):
             rect = QRectF(self.start_point, curr).normalized()
             self.drawing_item.setPos(rect.topLeft())
             self.drawing_item.setRect(0, 0, rect.width(), rect.height())
+            if hasattr(self.drawing_item, 'update_handles'):
+                self.drawing_item.update_handles()
         elif tool == "Lasso (Volná ruka)" and self.lasso_path:
             self.lasso_path.lineTo(curr)
             self.drawing_item.setPath(self.lasso_path)
@@ -149,16 +168,71 @@ class OcclusionDialog(QDialog):
 
     def run_ocr_auto(self) -> None:
         if not self.current_image_path: return
-        boxes = self.ocr.get_text_boxes(self.current_image_path)
+        
+        if not ANKI_AVAILABLE:
+            # Standalone mode - přímé volání
+            boxes = self.ocr.get_text_boxes(self.current_image_path)
+            self._handle_ocr_results(boxes)
+            return
+
+        # Anki mode - asynchronní QueryOp
+        self.occlude_btn.setEnabled(False)
+        self.occlude_btn.setText("Skenuji...")
+        
+        op = QueryOp(
+            parent=self,
+            op=lambda col: self.ocr.get_text_boxes(self.current_image_path),
+            success=self._handle_ocr_results
+        )
+        op.with_progress("Probíhá OCR analýza...").run_in_background()
+
+    def _handle_ocr_results(self, boxes: List[Dict[str, Any]]) -> None:
+        if ANKI_AVAILABLE:
+            self.occlude_btn.setEnabled(True)
+            self.occlude_btn.setText("Auto-OCR")
+            
         for b in boxes:
-            self.scene.addItem(OcclusionRect(MaskData(float(b['x']), float(b['y']), float(b['w']), float(b['h']), text=b['text'])))
+            self.scene.addItem(OcclusionRect(MaskData(
+                float(b['x']), float(b['y']), float(b['w']), float(b['h']), 
+                text=b['text']
+            )))
 
     def on_save_clicked(self) -> None:
-        items = [i for i in self.scene.items() if hasattr(i, 'data')]
-        if not items: return
-        exporter = SVGExporter(self.scene.width(), self.scene.height())
-        print(exporter.generate(items))
-        QMessageBox.information(self, "Export", "SVG vypsáno do konzole.")
+        if not self.current_image_path or not self.scene:
+            return
+            
+        masks = [i for i in self.scene.items() if hasattr(i, 'data')]
+        if not masks:
+            QMessageBox.warning(self, "Uložit", "Nejsou definovány žádné masky.")
+            return
+
+        if not ANKI_AVAILABLE or not self.anki:
+            QMessageBox.information(self, "Export", "Standalone režim: Export do Anki není dostupný.")
+            return
+
+        try:
+            exporter = SVGExporter(self.scene.width(), self.scene.height())
+            
+            # Generování OM SVG (Všechny masky)
+            om_svg = exporter.generate_om(masks)
+            
+            # Generování Q a A pro každou masku
+            q_svgs = []
+            a_svgs = []
+            for i in range(len(masks)):
+                q_svgs.append(exporter.generate_q(masks, i))
+                a_svgs.append(exporter.generate_a(masks, i))
+            
+            # Uložení do Anki
+            count = self.anki.save_assets_and_notes(
+                self.current_image_path, om_svg, q_svgs, a_svgs, masks
+            )
+            
+            QMessageBox.information(self, "Hotovo", f"Úspěšně vytvořeno {count} karet v Anki.")
+            self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Chyba", f"Nepodařilo se uložit karty: {str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -17,14 +17,15 @@ class MaskData:
     text: str = ""
 
 class ResizeHandle(QGraphicsRectItem):
-    SIZE = 14.0
+    SIZE = 10.0
     def __init__(self, parent: QGraphicsItem, position: str) -> None:
         super().__init__(-self.SIZE/2, -self.SIZE/2, self.SIZE, self.SIZE, parent)
         self.position = position
-        self.setBrush(QBrush(Qt.GlobalColor.white))
-        self.setPen(QPen(Qt.GlobalColor.blue, 1.5))
+        self.setBrush(QBrush(QColor("white")))
+        self.setPen(QPen(QColor("blue"), 1.0))
         self.setZValue(100)
         self.setAcceptHoverEvents(True)
+        self.hide() # Skryté, dokud není rodič vybrán
         
         cursors = {
             'topleft': Qt.CursorShape.SizeFDiagCursor, 'topright': Qt.CursorShape.SizeBDiagCursor,
@@ -32,9 +33,40 @@ class ResizeHandle(QGraphicsRectItem):
         }
         self.setCursor(cursors.get(position, Qt.CursorShape.ArrowCursor))
 
+    def mousePressEvent(self, event: Any) -> None:
+        event.accept()
+
+    def mouseMoveEvent(self, event: Any) -> None:
+        parent = self.parentItem()
+        if not parent: return
+        
+        # Nový rect na základě pohybu handle
+        rect = parent.rect()
+        pos = event.pos()
+        
+        if self.position == 'topleft':
+            rect.setTopLeft(pos)
+        elif self.position == 'topright':
+            rect.setTopRight(pos)
+        elif self.position == 'bottomleft':
+            rect.setBottomLeft(pos)
+        elif self.position == 'bottomright':
+            rect.setBottomRight(pos)
+        
+        # Boundary Guard (Minimální velikost)
+        if rect.width() > 5 and rect.height() > 5:
+            # Přepočet pozice rodiče při změně top/left
+            delta = rect.topLeft()
+            parent.setPos(parent.mapToParent(delta))
+            rect.translate(-delta.x(), -delta.y())
+            parent.setRect(rect)
+            parent.update_handles()
+        
+        event.accept()
+
 class BaseOcclusionItem:
     """Mixin pro společnou logiku masek."""
-    def init_occlusion(self, data: MaskData):
+    def init_occlusion(self, data: MaskData, has_handles: bool = True):
         self.data = data
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
@@ -47,13 +79,55 @@ class BaseOcclusionItem:
         self.setBrush(self.default_brush)
         self.setPen(QPen(Qt.GlobalColor.black, 1))
 
+        # Inicializace handles pouze pokud jsou vyžadovány
+        if has_handles:
+            self.handles = {
+                'topleft': ResizeHandle(self, 'topleft'),
+                'topright': ResizeHandle(self, 'topright'),
+                'bottomleft': ResizeHandle(self, 'bottomleft'),
+                'bottomright': ResizeHandle(self, 'bottomright')
+            }
+            self.update_handles()
+
     def update_style(self):
-        if self.isSelected():
+        selected = self.isSelected()
+        if selected:
             self.setBrush(self.selected_brush)
         elif self.data.group_id:
             self.setBrush(self.grouped_brush)
         else:
             self.setBrush(self.default_brush)
+        
+        # Zobrazení/skrytí handles
+        if hasattr(self, 'handles'):
+            for h in self.handles.values():
+                h.setVisible(selected)
+
+    def update_handles(self):
+        if not hasattr(self, 'handles'): return
+        # Pro Rect a Ellipse používáme rect(), pro ostatní boundingRect()
+        r = self.rect() if hasattr(self, 'rect') else self.boundingRect()
+        self.handles['topleft'].setPos(r.topLeft())
+        self.handles['topright'].setPos(r.topRight())
+        self.handles['bottomleft'].setPos(r.bottomLeft())
+        self.handles['bottomright'].setPos(r.bottomRight())
+        
+        # Sync dat
+        self.data.x, self.data.y = self.x(), self.y()
+        self.data.w, self.data.h = r.width(), r.height()
+
+    def apply_boundary_guard(self, new_pos: QPointF) -> QPointF:
+        """Zamezí masekám opustit plátno (velikost obrázku)."""
+        scene = self.scene()
+        if not scene: return new_pos
+        
+        s_rect = scene.sceneRect()
+        item_rect = self.boundingRect()
+        
+        x = max(s_rect.left(), min(new_pos.x(), s_rect.right() - item_rect.width()))
+        y = max(s_rect.top(), min(new_pos.y(), s_rect.bottom() - item_rect.height()))
+        
+        return QPointF(x, y)
 
 class OcclusionRect(QGraphicsRectItem, BaseOcclusionItem):
     def __init__(self, data: MaskData) -> None:
@@ -62,7 +136,10 @@ class OcclusionRect(QGraphicsRectItem, BaseOcclusionItem):
         self.init_occlusion(data)
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # 2.2 Boundary Guard při posunu
+            return self.apply_boundary_guard(value)
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.data.x, self.data.y = self.x(), self.y()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update_style()
@@ -75,7 +152,9 @@ class OcclusionEllipse(QGraphicsEllipseItem, BaseOcclusionItem):
         self.init_occlusion(data)
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            return self.apply_boundary_guard(value)
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.data.x, self.data.y = self.x(), self.y()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update_style()
@@ -85,9 +164,11 @@ class OcclusionPath(QGraphicsPathItem, BaseOcclusionItem):
     """Pro Lasso tool."""
     def __init__(self, data: MaskData, path: QPainterPath) -> None:
         super().__init__(path)
-        self.init_occlusion(data)
+        self.init_occlusion(data, has_handles=False)
         
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
-        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            return self.apply_boundary_guard(value)
+        elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update_style()
         return super().itemChange(change, value)
