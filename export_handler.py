@@ -19,17 +19,17 @@ class SVGExporter:
 
     def generate_om(self, masks: List[Any]) -> str:
         """Generuje Original Mask (všechny masky žluté)."""
-        return self._build_svg(masks, active_idx=-1, mode="om")
+        return self._build_svg(masks, active_indices=[], mode="om")
 
-    def generate_q(self, masks: List[Any], active_idx: int) -> str:
+    def generate_q(self, masks: List[Any], active_indices: List[int]) -> str:
         """Generuje Question Mask (aktivní červená, ostatní žluté)."""
-        return self._build_svg(masks, active_idx=active_idx, mode="q")
+        return self._build_svg(masks, active_indices=active_indices, mode="q")
 
-    def generate_a(self, masks: List[Any], active_idx: int) -> str:
+    def generate_a(self, masks: List[Any], active_indices: List[int]) -> str:
         """Generuje Answer Mask (aktivní skrytá, ostatní žluté)."""
-        return self._build_svg(masks, active_idx=active_idx, mode="a")
+        return self._build_svg(masks, active_indices=active_indices, mode="a")
 
-    def _build_svg(self, masks: List[Any], active_idx: int, mode: str) -> str:
+    def _build_svg(self, masks: List[Any], active_indices: List[int], mode: str) -> str:
         svg_root = ET.Element("svg", {
             "xmlns": "http://www.w3.org/2000/svg",
             "viewBox": f"0 0 {self.width} {self.height}"
@@ -45,7 +45,7 @@ class SVGExporter:
             color_red = "#fc4242"
             
             fill = color_yellow
-            if mode == "q" and i == active_idx:
+            if mode == "q" and i in active_indices:
                 fill = color_red
             
             attribs = {
@@ -55,7 +55,7 @@ class SVGExporter:
                 "stroke-width": "1.5"
             }
 
-            if mode == "a" and i == active_idx:
+            if mode == "a" and i in active_indices:
                 attribs["display"] = "none"
 
             if data.shape_type == "rect":

@@ -1,4 +1,4 @@
-# 🧠 GEMINI.md - Auto Anki Image Occlusion (Lead Architect Edition)
+# 🧠 GEMINI.md - Auto Anki Image Occlusion
 
 ---
 
@@ -44,7 +44,7 @@ Doplněk implementuje klasickou architekturu **Image Occlusion Enhanced (IOE)**,
 
 | Technický parametr / Vlastnost | Nativní Image Occlusion (Anki v23.10+)         | Image Occlusion Enhanced (Náš Add-on)           |
 | ------------------------------ | ---------------------------------------------- | ----------------------------------------------- |
-| **Název typu poznámky**        | `Image Occlusion`                              | `Image Occlusion Enhanced`                      |
+| **Název typu poznámky**        | `Auto Image Occlusion`                         | `Auto Image Occlusion Enhanced`                 |
 | **Struktura polí**             | Header, Image, Occlusion, Back Extra, Comments | 11 specifických polí (viz sekce 4)              |
 | **Reprezentace masek**         | Textový řetězec v poli `Occlusion`             | Vektorové soubory **SVG** v `collection.media`  |
 | **Vztah Note → Card**          | 1 Note = Více sourozeneckých karet             | 1 Maska = 1 Nezávislá Note (unikátní ID)        |

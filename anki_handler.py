@@ -15,7 +15,7 @@ except ImportError:
     ANKI_AVAILABLE = False
 
 class AnkiHandler:
-    NOTE_TYPE_NAME = "Image Occlusion V2"
+    NOTE_TYPE_NAME = "Image Occlusion Enhanced"
     
     FIELDS = [
         "ID (hidden)", "Header", "Image", "Question Mask", "Footer", 
@@ -48,43 +48,100 @@ class AnkiHandler:
         # Front Template (z GEMINI.md)
         tmpl['qfmt'] = """
 <div class="io-wrapper">
-  {{#Header}}<div id="io-header">{{Header}}</div>{{/Header}}
+  {{#Header}}
+  <div id="io-header">{{Header}}</div>
+  {{/Header}}
   <div id="io-container" style="position: relative; display: inline-block;">
     <div id="io-original" style="visibility: hidden;">{{Image}}</div>
-    <div id="io-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+    <div
+      id="io-overlay"
+      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+    >
       {{Question Mask}}
     </div>
   </div>
-  {{#Footer}}<div id="io-footer">{{Footer}}</div>{{/Footer}}
+  {{#Footer}}
+  <div id="io-footer">{{Footer}}</div>
+  {{/Footer}}
 </div>
+
 <script>
+  // Prevence probliknutí obrázku před načtením masky
   var mask = document.querySelector("#io-overlay img");
-  function showImage() { document.querySelector("#io-original").style.visibility = "visible"; }
-  if (mask === null || mask.complete) { showImage(); } else { mask.addEventListener("load", showImage); }
+  function showImage() {
+    document.querySelector("#io-original").style.visibility = "visible";
+  }
+  if (mask === null || mask.complete) {
+    showImage();
+  } else {
+    mask.addEventListener("load", showImage);
+  }
 </script>
         """
         
         # Back Template (z GEMINI.md)
         tmpl['afmt'] = """
-{{FrontSide}}
-<hr id="answer">
 <div class="io-wrapper">
+  {{#Header}}
+  <div id="io-header">{{Header}}</div>
+  {{/Header}}
   <div id="io-container" style="position: relative; display: inline-block;">
-    <div id="io-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+    <div>{{Image}}</div>
+    <div
+      id="io-overlay"
+      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+    >
       {{Answer Mask}}
     </div>
   </div>
-  {{#Remarks}}<div class="io-extra"><strong>Remarks:</strong> {{Remarks}}</div>{{/Remarks}}
-  {{#Sources}}<div class="io-extra"><strong>Sources:</strong> {{Sources}}</div>{{/Sources}}
+  {{#Footer}}
+  <div id="io-footer">{{Footer}}</div>
+  {{/Footer}} {{#Remarks}}
+  <div class="io-extra"><strong>Remarks:</strong> {{Remarks}}</div>
+  {{/Remarks}} {{#Sources}}
+  <div class="io-extra"><strong>Sources:</strong> {{Sources}}</div>
+  {{/Sources}} {{#Extra 1}}
+  <div class="io-extra">{{Extra 1}}</div>
+  {{/Extra 1}}
 </div>
+
+<script>
+  // Kliknutím na obrázek dočasně skryješ/zobrazíš masku odpovědi
+  var toggle = function () {
+    var amask = document.querySelector("#io-overlay img");
+    if (amask) {
+      amask.style.display = amask.style.display === "none" ? "block" : "none";
+    }
+  };
+  document.querySelector("#io-container").addEventListener("click", toggle);
+</script>
         """
         
         # CSS (z GEMINI.md)
         model['css'] = """
-.card { font-family: arial; font-size: 20px; text-align: center; color: black; background-color: white; }
-.io-wrapper { display: inline-block; margin: 0 auto; }
-#io-container img { max-width: 100%; height: auto; display: block; }
-.io-extra { margin-top: 15px; padding: 10px; background-color: #f9f9f9; border-left: 3px solid #3b82f6; text-align: left; }
+.card {
+  font-family: arial;
+  font-size: 20px;
+  text-align: center;
+  color: black;
+  background-color: white;
+}
+.io-wrapper {
+  display: inline-block;
+  margin: 0 auto;
+}
+#io-container img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+.io-extra {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-left: 3px solid #3b82f6;
+  text-align: left;
+}
         """
         
         mm.add_template(model, tmpl)
@@ -123,8 +180,8 @@ class AnkiHandler:
             note["Original Mask"] = f'<img src="{om_name}">'
             
             # Pokud je k dispozici text z OCR, dáme ho do Remarks
-            if hasattr(masks_data[i], 'data') and masks_data[i].data.text:
-                note["Remarks"] = masks_data[i].data.text
+            if i < len(masks_data) and masks_data[i]:
+                note["Remarks"] = str(masks_data[i])
 
             self.col.add_note(note, deck_id)
             count += 1

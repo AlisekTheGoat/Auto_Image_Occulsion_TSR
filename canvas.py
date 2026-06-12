@@ -246,8 +246,8 @@ class OcclusionDialog(QDialog):
         if not self.current_image_path or not self.scene:
             return
             
-        masks = [i for i in self.scene.items() if hasattr(i, 'data')]
-        if not masks:
+        all_masks = [i for i in self.scene.items() if hasattr(i, 'data')]
+        if not all_masks:
             QMessageBox.warning(self, "Uložit", "Nejsou definovány žádné masky.")
             return
 
@@ -258,25 +258,46 @@ class OcclusionDialog(QDialog):
         try:
             exporter = SVGExporter(self.scene.width(), self.scene.height())
             
-            # Generování OM SVG (Všechny masky)
-            om_svg = exporter.generate_om(masks)
+            # Seskupení masek pro generování karet
+            # key: group_id (nebo uuid pro neseskupené), value: list of indices in all_masks
+            groups: Dict[str, List[int]] = {}
+            for i, mask in enumerate(all_masks):
+                gid = mask.data.group_id if mask.data.group_id else f"single-{uuid.uuid4().hex}"
+                if gid not in groups:
+                    groups[gid] = []
+                groups[gid].append(i)
             
-            # Generování Q a A pro každou masku
+            # Seznam skupin (list of lists of indices)
+            grouped_indices = list(groups.values())
+            
+            # Generování OM SVG (Všechny masky)
+            om_svg = exporter.generate_om(all_masks)
+            
+            # Generování Q a A pro každou skupinu (kartu)
             q_svgs = []
             a_svgs = []
-            for i in range(len(masks)):
-                q_svgs.append(exporter.generate_q(masks, i))
-                a_svgs.append(exporter.generate_a(masks, i))
+            # Připravíme data pro Remarks (spojíme texty ze všech masek ve skupině)
+            card_data = []
+            
+            for indices in grouped_indices:
+                q_svgs.append(exporter.generate_q(all_masks, indices))
+                a_svgs.append(exporter.generate_a(all_masks, indices))
+                
+                # Spojení textů pro Remarks
+                texts = [all_masks[idx].data.text for idx in indices if all_masks[idx].data.text]
+                card_data.append(" | ".join(texts) if texts else "")
             
             # Uložení do Anki
             count = self.anki.save_assets_and_notes(
-                self.current_image_path, om_svg, q_svgs, a_svgs, masks
+                self.current_image_path, om_svg, q_svgs, a_svgs, card_data
             )
             
             QMessageBox.information(self, "Hotovo", f"Úspěšně vytvořeno {count} karet v Anki.")
             self.accept()
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, "Chyba", f"Nepodařilo se uložit karty: {str(e)}")
 
 if __name__ == "__main__":

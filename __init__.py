@@ -27,7 +27,12 @@ def on_add_cards_init(add_cards: AddCards) -> None:
     btn = QPushButton("Auto Image Occlusion 🪄")
     btn.clicked.connect(lambda: start_occlusion_tool_from_editor(add_cards))
     # Vložíme tlačítko do rozvržení okna Add Cards
-    add_cards.form.verticalLayout.insertWidget(0, btn)
+    layout = getattr(add_cards.form, "verticalLayout", None) or getattr(add_cards.form, "verticalLayout_3", None)
+    if layout:
+        layout.insertWidget(0, btn)
+    else:
+        # Fallback: pokud nenajdeme ani jedno, přidáme to do hlavního layoutu dialogu
+        add_cards.layout().insertWidget(0, btn)
 
 def start_occlusion_tool_from_editor(add_cards: AddCards) -> None:
     """Spustí nástroj a po dokončení se pokusí vyplnit pole v editoru."""
