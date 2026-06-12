@@ -1,18 +1,25 @@
 import sys
 import os
 import uuid
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QGraphicsView, QGraphicsScene, QFileDialog, QMessageBox, QComboBox, QToolButton
+    QGraphicsView, QGraphicsScene, QFileDialog, QMessageBox, QComboBox, QToolButton,
+    QRubberBand, QGraphicsRectItem
 )
 from PyQt6.QtGui import QPixmap, QPainter, QPainterPath
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtCore import Qt, QRectF, QPointF, QRect, QSize
 
-from ocr_handler import OCRHandler
-from export_handler import SVGExporter
-from anki_handler import AnkiHandler
-from canvas_items import MaskData, OcclusionRect, OcclusionEllipse, OcclusionPath
+try:
+    from .ocr_handler import OCRHandler
+    from .export_handler import SVGExporter
+    from .anki_handler import AnkiHandler
+    from .canvas_items import MaskData, OcclusionRect, OcclusionEllipse, OcclusionPath
+except ImportError:
+    from ocr_handler import OCRHandler
+    from export_handler import SVGExporter
+    from anki_handler import AnkiHandler
+    from canvas_items import MaskData, OcclusionRect, OcclusionEllipse, OcclusionPath
 
 try:
     import aqt
@@ -26,13 +33,15 @@ except ImportError:
 class OcclusionDialog(QDialog):
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Auto Image Occlusion - Lead Architect Edition")
-        self.resize(1100, 800)
+        self.setWindowTitle("Auto Image Occlusion")
+        self.resize(1280, 800)
         self.ocr = OCRHandler()
         self.anki = AnkiHandler() if ANKI_AVAILABLE else None
         self.current_image_path: Optional[str] = None
         self.drawing_item: Optional[Any] = None
         self.lasso_path: Optional[QPainterPath] = None
+        self.rubber_band: Optional[QRubberBand] = None
+        self.origin = QPointF()
         self.setup_ui()
 
     def setup_ui(self) -> None:
@@ -99,7 +108,28 @@ class OcclusionDialog(QDialog):
 
     def scene_mouse_press(self, event: Any) -> None:
         tool = self.tool_selector.currentText()
-        if tool == "Výběr" or event.button() != Qt.MouseButton.LeftButton:
+        if tool == "Výběr":
+            # Pokud klikneme na prázdné místo, zahájíme Rubber Band
+            item = self.scene.itemAt(event.scenePos(), self.view.transform())
+            # Kontrola zda jsme klikli na pozadí (pixmap) nebo nic
+            is_background = not item or (isinstance(item, QGraphicsRectItem) and not hasattr(item, 'data'))
+            
+            if is_background:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self.origin = event.screenPos()
+                    if not self.rubber_band:
+                        self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.view)
+                    self.rubber_band.setGeometry(QRect(self.view.mapFromGlobal(self.origin.toPoint()), QSize()))
+                    self.rubber_band.show()
+                    # Zrušit předchozí výběr
+                    self.scene.clearSelection()
+                    event.accept()
+                    return
+
+            QGraphicsScene.mousePressEvent(self.scene, event)
+            return
+
+        if event.button() != Qt.MouseButton.LeftButton:
             QGraphicsScene.mousePressEvent(self.scene, event)
             return
 
@@ -117,6 +147,11 @@ class OcclusionDialog(QDialog):
         event.accept()
 
     def scene_mouse_move(self, event: Any) -> None:
+        if self.rubber_band and self.rubber_band.isVisible():
+            self.rubber_band.setGeometry(QRect(self.view.mapFromGlobal(self.origin.toPoint()), event.screenPos()).normalized())
+            event.accept()
+            return
+
         if not self.drawing_item:
             QGraphicsScene.mouseMoveEvent(self.scene, event)
             return
@@ -142,8 +177,18 @@ class OcclusionDialog(QDialog):
         event.accept()
 
     def scene_mouse_release(self, event: Any) -> None:
+        if self.rubber_band and self.rubber_band.isVisible():
+            self.rubber_band.hide()
+            # Výběr prvků v obdélníku
+            rect = self.view.mapToScene(self.rubber_band.geometry()).boundingRect()
+            for item in self.scene.items(rect):
+                if hasattr(item, 'data'):
+                    item.setSelected(True)
+            event.accept()
+            return
+
         if self.drawing_item:
-            if tool := self.tool_selector.currentText() == "Lasso (Volná ruka)":
+            if self.tool_selector.currentText() == "Lasso (Volná ruka)":
                 self.lasso_path.closeSubpath()
                 self.drawing_item.setPath(self.lasso_path)
             

@@ -56,7 +56,8 @@ class OCRHandler:
 
     def get_text_boxes(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        Naskenuje obrázek, provede předzpracování a vrátí seznam shluknutých bounding boxů.
+        Naskenuje obrázek, provede předzpracování a vrátí seznam shluknutých bounding boxů
+        optimalizovaných pro anatomické popisky (Phrase Clustering).
         """
         if not self.tesseract_path:
             self._show_error(
@@ -67,108 +68,103 @@ class OCRHandler:
             return []
 
         try:
-            # 1.1 Předzpracování obrazu
+            # 1. Předzpracování obrazu
             orig_img = Image.open(image_path)
             scale_factor = 2.0
             processed_img = self._preprocess_image(orig_img, scale_factor)
             
-            # 1.2 Konfigurace Tesseractu (--psm 12 pro sparse text)
+            # 2. Konfigurace Tesseractu
             custom_config = r'--psm 12'
             data = pytesseract.image_to_data(processed_img, config=custom_config, output_type=pytesseract.Output.DICT)
             
-            words = []
+            raw_words = []
             num_boxes = len(data['level'])
 
+            # Sběr surových slov
             for i in range(num_boxes):
                 conf = int(data['conf'][i])
                 text = data['text'][i].strip()
                 
-                # Filtrace: pouze slova (level 5) s jistotou > 40
                 if data['level'][i] == 5 and conf > 40 and text:
-                    # Přepočet souřadnic zpět na původní velikost
-                    words.append({
+                    raw_words.append({
                         'x1': data['left'][i] / scale_factor,
                         'y1': data['top'][i] / scale_factor,
                         'x2': (data['left'][i] + data['width'][i]) / scale_factor,
                         'y2': (data['top'][i] + data['height'][i]) / scale_factor,
-                        'text': text
+                        'text': text,
+                        'h': (data['height'][i]) / scale_factor
                     })
             
-            if not words:
+            if not raw_words:
                 return []
 
-            # 1.3 Dynamické shlukování (Word Clustering)
-            # Parametry z GEMINI.md / Heuristika
+            # 3. Výpočet globálního H_avg (Krok 1.1 V2)
+            global_h_avg = sum(w['h'] for w in raw_words) / len(raw_words)
+            
+            # 4. Phrase Clustering Algoritmus
+            # Parametry dle ROADMAP_V2
             M_HORIZ = 1.2
-            M_VERT = 0.8  # Pro sloučení slov na stejném řádku
+            M_VERT = 0.3
+            
+            merged_boxes = []
+            # Seřadíme slova primárně podle Y a sekundárně podle X
+            words = sorted(raw_words, key=lambda w: (w['y1'], w['x1']))
 
-            merged = True
-            while merged:
-                merged = False
-                new_words = []
-                while words:
-                    curr = words.pop(0)
-                    has_merged = False
+            while words:
+                curr = words.pop(0)
+                phrase_group = [curr]
+                
+                # Hledáme slova na stejném řádku v blízkosti
+                i = 0
+                while i < len(words):
+                    other = words[i]
                     
-                    # Výpočet průměrné výšky aktuálního slova pro dynamický práh
-                    h_curr = curr['y2'] - curr['y1']
+                    dx = other['x1'] - curr['x2']
+                    dy = abs(other['y1'] - curr['y1'])
                     
-                    for i, other in enumerate(words):
-                        h_other = other['y2'] - other['y1']
-                        h_avg = (h_curr + h_other) / 2.0
-                        
-                        x_threshold = h_avg * M_HORIZ
-                        y_threshold = h_avg * M_VERT
-                        
-                        # Kontrola prostorové blízkosti
-                        horizontal_gap = max(0, max(curr['x1'], other['x1']) - min(curr['x2'], other['x2']))
-                        vertical_overlap = min(curr['y2'], other['y2']) - max(curr['y1'], other['y1'])
-                        
-                        # Podmínka pro sloučení: 
-                        # 1. Malá horizontální mezera
-                        # 2. Významný vertikální překryv (jsou na stejném řádku)
-                        if horizontal_gap < x_threshold and vertical_overlap > (h_avg * 0.3):
-                            
-                            curr['x1'] = min(curr['x1'], other['x1'])
-                            curr['y1'] = min(curr['y1'], other['y1'])
-                            curr['x2'] = max(curr['x2'], other['x2'])
-                            curr['y2'] = max(curr['y2'], other['y2'])
-                            
-                            # Seřazení textu podle X souřadnice
-                            if other['x1'] < curr['x1']:
-                                curr['text'] = other['text'] + " " + curr['text']
-                            else:
-                                curr['text'] += " " + other['text']
-                            
-                            words.pop(i)
-                            has_merged = True
-                            merged = True
-                            break
-                    
-                    new_words.append(curr)
-                words = new_words
+                    # Podmínka pro horizontální řetězení
+                    if dy < (global_h_avg * M_VERT) and dx < (global_h_avg * M_HORIZ):
+                        # Přidáme do skupiny a aktualizujeme hranice 'curr' pro další hledání
+                        phrase_group.append(words.pop(i))
+                        curr['x2'] = max(curr['x2'], other['x2'])
+                        curr['y1'] = min(curr['y1'], other['y1'])
+                        curr['y2'] = max(curr['y2'], other['y2'])
+                        # Neposouváme i, protože jsme prvek odebrali
+                    else:
+                        i += 1
+                
+                # Sloučení skupiny do jednoho boxu
+                text = " ".join(w['text'] for w in phrase_group)
+                x1 = min(w['x1'] for w in phrase_group)
+                y1 = min(w['y1'] for w in phrase_group)
+                x2 = max(w['x2'] for w in phrase_group)
+                y2 = max(w['y2'] for w in phrase_group)
+                
+                merged_boxes.append({
+                    'text': text,
+                    'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2
+                })
 
-            # Finální filtrace pomocí IoU (Intersection over Union)
-            # Zamezuje duplicitním nebo vnořeným maskám
+            # 5. Finální filtrace pomocí IoU
             final_boxes = []
-            for w in words:
+            for b in merged_boxes:
                 keep = True
-                box_a = [w['x1'], w['y1'], w['x2'], w['y2']]
+                box_a = [b['x1'], b['y1'], b['x2'], b['y2']]
                 for existing in final_boxes:
                     box_b = [existing['x1'], existing['y1'], existing['x2'], existing['y2']]
                     if self._calculate_iou(box_a, box_b) > 0.4:
                         keep = False
                         break
                 if keep:
-                    final_boxes.append(w)
+                    final_boxes.append(b)
 
             return [{
-                'text': w['text'],
-                'x': w['x1'],
-                'y': w['y1'],
-                'w': w['x2'] - w['x1'],
-                'h': w['y2'] - w['y1']
-            } for w in final_boxes]
+                'text': b['text'],
+                'x': b['x1'],
+                'y': b['y1'],
+                'w': b['x2'] - b['x1'],
+                'h': b['y2'] - b['y1']
+            } for b in final_boxes]
 
         except Exception as e:
             self._show_error(f"Chyba při zpracování OCR: {str(e)}")

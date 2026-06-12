@@ -15,7 +15,7 @@ except ImportError:
     ANKI_AVAILABLE = False
 
 class AnkiHandler:
-    NOTE_TYPE_NAME = "Image Occlusion Enhanced"
+    NOTE_TYPE_NAME = "Image Occlusion V2"
     
     FIELDS = [
         "ID (hidden)", "Header", "Image", "Question Mask", "Footer", 

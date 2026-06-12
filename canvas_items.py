@@ -34,32 +34,43 @@ class ResizeHandle(QGraphicsRectItem):
         self.setCursor(cursors.get(position, Qt.CursorShape.ArrowCursor))
 
     def mousePressEvent(self, event: Any) -> None:
+        # Uložení počátečního bodu pro výpočet delty
+        self.last_mouse_pos = event.scenePos()
         event.accept()
 
     def mouseMoveEvent(self, event: Any) -> None:
         parent = self.parentItem()
         if not parent: return
         
-        # Nový rect na základě pohybu handle
+        curr_mouse_pos = event.scenePos()
+        delta = curr_mouse_pos - self.last_mouse_pos
+        self.last_mouse_pos = curr_mouse_pos
+        
         rect = parent.rect()
-        pos = event.pos()
+        pos = parent.pos()
         
+        # Výpočet nových rozměrů na základě pozice handle
+        # Používáme delta posun pro plynulost
         if self.position == 'topleft':
-            rect.setTopLeft(pos)
+            pos += delta
+            rect.setWidth(rect.width() - delta.x())
+            rect.setHeight(rect.height() - delta.y())
         elif self.position == 'topright':
-            rect.setTopRight(pos)
+            pos.setY(pos.y() + delta.y())
+            rect.setWidth(rect.width() + delta.x())
+            rect.setHeight(rect.height() - delta.y())
         elif self.position == 'bottomleft':
-            rect.setBottomLeft(pos)
+            pos.setX(pos.x() + delta.x())
+            rect.setWidth(rect.width() - delta.x())
+            rect.setHeight(rect.height() + delta.y())
         elif self.position == 'bottomright':
-            rect.setBottomRight(pos)
+            rect.setWidth(rect.width() + delta.x())
+            rect.setHeight(rect.height() + delta.y())
         
-        # Boundary Guard (Minimální velikost)
+        # Boundary Guard (Minimální velikost 5x5)
         if rect.width() > 5 and rect.height() > 5:
-            # Přepočet pozice rodiče při změně top/left
-            delta = rect.topLeft()
-            parent.setPos(parent.mapToParent(delta))
-            rect.translate(-delta.x(), -delta.y())
-            parent.setRect(rect)
+            parent.setPos(pos)
+            parent.setRect(0, 0, rect.width(), rect.height())
             parent.update_handles()
         
         event.accept()
@@ -161,14 +172,28 @@ class OcclusionEllipse(QGraphicsEllipseItem, BaseOcclusionItem):
         return super().itemChange(change, value)
 
 class OcclusionPath(QGraphicsPathItem, BaseOcclusionItem):
-    """Pro Lasso tool."""
+    """Pro Lasso tool (Volná ruka)."""
     def __init__(self, data: MaskData, path: QPainterPath) -> None:
         super().__init__(path)
         self.init_occlusion(data, has_handles=False)
+        self._path = path
         
+    def setPath(self, path: QPainterPath) -> None:
+        super().setPath(path)
+        self._path = path
+        # Aktualizace bounding boxu v datech
+        rect = path.boundingRect()
+        self.data.x, self.data.y = rect.x(), rect.y()
+        self.data.w, self.data.h = rect.width(), rect.height()
+
+    def path(self) -> QPainterPath:
+        return self._path
+
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             return self.apply_boundary_guard(value)
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.data.x, self.data.y = self.x(), self.y()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update_style()
         return super().itemChange(change, value)
