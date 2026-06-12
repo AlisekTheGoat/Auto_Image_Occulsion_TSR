@@ -80,12 +80,16 @@ class OCRHandler:
             raw_words = []
             num_boxes = len(data['level'])
 
-            # Sběr surových slov
+            # Sběr surových slov - snížíme práh spolehlivosti pro medicínské diagramy
             for i in range(num_boxes):
-                conf = int(data['conf'][i])
+                try:
+                    conf = int(data['conf'][i])
+                except:
+                    conf = 0
                 text = data['text'][i].strip()
                 
-                if data['level'][i] == 5 and conf > 40 and text:
+                # Snížení conf na 20 pro zachycení drobných popisků
+                if data['level'][i] == 5 and conf > 20 and text:
                     raw_words.append({
                         'x1': data['left'][i] / scale_factor,
                         'y1': data['top'][i] / scale_factor,
@@ -98,23 +102,20 @@ class OCRHandler:
             if not raw_words:
                 return []
 
-            # 3. Výpočet globálního H_avg (Krok 1.1 V2)
+            # 3. Výpočet globálního H_avg
             global_h_avg = sum(w['h'] for w in raw_words) / len(raw_words)
             
-            # 4. Phrase Clustering Algoritmus
-            # Parametry dle ROADMAP_V2
-            M_HORIZ = 1.2
-            M_VERT = 0.3
+            # 4. Phrase Clustering Algoritmus - AGRESIVNĚJŠÍ SHLUKOVÁNÍ
+            M_HORIZ = 2.0 # Více prostoru mezi slovy
+            M_VERT = 0.5  # Větší tolerance pro "vlnitý" text
             
             merged_boxes = []
-            # Seřadíme slova primárně podle Y a sekundárně podle X
             words = sorted(raw_words, key=lambda w: (w['y1'], w['x1']))
 
             while words:
                 curr = words.pop(0)
                 phrase_group = [curr]
                 
-                # Hledáme slova na stejném řádku v blízkosti
                 i = 0
                 while i < len(words):
                     other = words[i]
@@ -122,14 +123,11 @@ class OCRHandler:
                     dx = other['x1'] - curr['x2']
                     dy = abs(other['y1'] - curr['y1'])
                     
-                    # Podmínka pro horizontální řetězení
                     if dy < (global_h_avg * M_VERT) and dx < (global_h_avg * M_HORIZ):
-                        # Přidáme do skupiny a aktualizujeme hranice 'curr' pro další hledání
                         phrase_group.append(words.pop(i))
                         curr['x2'] = max(curr['x2'], other['x2'])
                         curr['y1'] = min(curr['y1'], other['y1'])
                         curr['y2'] = max(curr['y2'], other['y2'])
-                        # Neposouváme i, protože jsme prvek odebrali
                     else:
                         i += 1
                 

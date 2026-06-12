@@ -84,9 +84,9 @@ class BaseOcclusionItem:
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
-        self.default_brush = QBrush(QColor(255, 255, 0, 100))
-        self.selected_brush = QBrush(QColor(255, 0, 0, 150))
-        self.grouped_brush = QBrush(QColor(0, 255, 255, 100))
+        self.default_brush = QBrush(QColor(255, 255, 0, 255))
+        self.selected_brush = QBrush(QColor(255, 0, 0, 255))
+        self.grouped_brush = QBrush(QColor(0, 255, 255, 255))
         self.setBrush(self.default_brush)
         self.setPen(QPen(Qt.GlobalColor.black, 1))
 
