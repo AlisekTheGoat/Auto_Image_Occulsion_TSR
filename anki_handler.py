@@ -1,23 +1,21 @@
-import os
 import uuid
 import shutil
-from typing import List, Dict, Any, Optional
+import os
+from typing import List
 
 try:
     from aqt import mw
     from anki.notes import Note
-    from anki.models import NotetypeId
     ANKI_AVAILABLE = True
 except ImportError:
     mw = None
     Note = None
-    NotetypeId = None
     ANKI_AVAILABLE = False
 
 class AnkiHandler:
     NOTE_TYPE_NAME = "AutoImageOcclusion"
     
-    # 9 fields as requested
+    # 9 fields as requested in GEMINI.md
     FIELDS = [
         "ID", "header", "question image", "footer", 
         "Remarks", "Sources", "Extra", "Answer mask", "Original mask"
@@ -31,92 +29,74 @@ class AnkiHandler:
             self.col = None
 
     def _ensure_note_type(self) -> None:
-        """Zkontroluje a případně vytvoří Note Type AutoImageOculsion."""
+        """Zkontroluje a případně vytvoří/aktualizuje Note Type AutoImageOcclusion."""
         model = self.col.models.by_name(self.NOTE_TYPE_NAME)
-        if model:
-            return
-
-        mm = self.col.models
-        model = mm.new(self.NOTE_TYPE_NAME)
         
-        for field_name in self.FIELDS:
-            fm = mm.new_field(field_name)
-            mm.add_field(model, fm)
-
-        tmpl = mm.new_template("Occlusion Card")
-        
-        # Front Template
-        tmpl['qfmt'] = """
-<div class="io-wrapper">
+        qfmt = """<div class="io-wrapper">
   {{#header}}
-  <div id="io-header">{{header}}</div>
+  <div id="io-header" style="font-size: 1.2em; margin-bottom: 10px; font-weight: bold;">{{header}}</div>
   {{/header}}
-  <div id="io-container" style="position: relative; display: inline-block;">
-    <div id="io-original" style="visibility: hidden;">{{question image}}</div>
-    <div
-      id="io-overlay"
-      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-    >
-      {{Original mask}}
-    </div>
+  <div id="io-container">
+    {{question image}}
   </div>
   {{#footer}}
-  <div id="io-footer">{{footer}}</div>
+  <div id="io-footer" style="font-size: 0.9em; margin-top: 10px; color: #555;">{{footer}}</div>
   {{/footer}}
-</div>
+</div>"""
 
-<script>
-  var mask = document.querySelector("#io-overlay img");
-  function showImage() {
-    document.querySelector("#io-original").style.visibility = "visible";
-  }
-  if (mask === null || mask.complete) {
-    showImage();
-  } else {
-    mask.addEventListener("load", showImage);
-  }
-</script>
-        """
-        
-        # Back Template
-        tmpl['afmt'] = """
-<div class="io-wrapper">
+        afmt = """<div class="io-wrapper">
   {{#header}}
-  <div id="io-header">{{header}}</div>
+  <div id="io-header" style="font-size: 1.2em; margin-bottom: 10px; font-weight: bold;">{{header}}</div>
   {{/header}}
-  <div id="io-container" style="position: relative; display: inline-block;">
-    <div>{{question image}}</div>
-    <div
-      id="io-overlay"
-      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-    >
-      {{Answer mask}}
-    </div>
+  <div id="io-container" style="cursor: pointer;">
+    {{Answer mask}}
   </div>
   {{#footer}}
-  <div id="io-footer">{{footer}}</div>
-  {{/footer}} {{#Remarks}}
+  <div id="io-footer" style="font-size: 0.9em; margin-top: 10px; color: #555;">{{footer}}</div>
+  {{/footer}}
+  
+  {{#Remarks}}
   <div class="io-extra"><strong>Remarks:</strong> {{Remarks}}</div>
-  {{/Remarks}} {{#Sources}}
+  {{/Remarks}}
+  {{#Sources}}
   <div class="io-extra"><strong>Sources:</strong> {{Sources}}</div>
-  {{/Sources}} {{#Extra}}
+  {{/Sources}}
+  {{#Extra}}
   <div class="io-extra">{{Extra}}</div>
   {{/Extra}}
 </div>
 
 <script>
-  var toggle = function () {
-    var amask = document.querySelector("#io-overlay img");
-    if (amask) {
-      amask.style.display = amask.style.display === "none" ? "block" : "none";
-    }
-  };
-  document.querySelector("#io-container").addEventListener("click", toggle);
-</script>
-        """
+  (function() {
+    var container = document.querySelector("#io-container");
+    var answerImg = document.querySelector("#io-container img");
+    var originalMaskHtml = `{{Original mask}}`;
+    
+    if (container && answerImg && originalMaskHtml) {
+      var originalSrc = "";
+      var match = originalMaskHtml.match(/src=["']([^"']+)["']/);
+      if (match) {
+        originalSrc = match[1];
+      }
+      
+      if (originalSrc) {
+        var isShowingOriginal = false;
+        var answerSrc = answerImg.src;
         
-        model['css'] = """
-.card {
+        container.addEventListener("click", function() {
+          if (isShowingOriginal) {
+            answerImg.src = answerSrc;
+          } else {
+            answerImg.src = originalSrc;
+          }
+          isShowingOriginal = !isShowingOriginal;
+        });
+      }
+    }
+  })();
+</script>"""
+
+        css = """.card {
   font-family: arial;
   font-size: 20px;
   text-align: center;
@@ -138,38 +118,80 @@ class AnkiHandler:
   background-color: #f9f9f9;
   border-left: 3px solid #3b82f6;
   text-align: left;
-}
-        """
+}"""
+
+        if model:
+            # Model již existuje, zaktualizujeme jeho šablony a CSS pro responzivitu
+            tmpl = model['tmpls'][0]
+            tmpl['qfmt'] = qfmt
+            tmpl['afmt'] = afmt
+            model['css'] = css
+            self.col.models.save(model)
+            return
+
+        # Vytvoření nového Note Type
+        mm = self.col.models
+        model = mm.new(self.NOTE_TYPE_NAME)
+        
+        for field_name in self.FIELDS:
+            fm = mm.new_field(field_name)
+            mm.add_field(model, fm)
+
+        tmpl = mm.new_template("Occlusion Card")
+        tmpl['qfmt'] = qfmt
+        tmpl['afmt'] = afmt
+        model['css'] = css
         
         mm.add_template(model, tmpl)
         mm.add(model)
 
-    def save_assets_and_notes(self, image_path: str, om_svg: str, q_svgs: List[str], a_svgs: List[str], card_data: List[str]) -> int:
-        """Uloží média a vytvoří karty v Anki."""
+    def save_assets_and_notes(self, image_path: str, om_svg: str, q_svgs: List[str], a_svgs: List[str], metadata: dict) -> int:
+        """
+        Uloží média (podkladový obrázek a SVG masky) a zapíše nové poznámky do databáze Anki.
+        Vrací počet úspěšně přidaných karet.
+        """
         if not ANKI_AVAILABLE or not mw:
             return 0
 
-        image_name = f"io-bg-{uuid.uuid4().hex}.png"
+        from .export_handler import SVGExporter
+
+        # 1. Zkopírování originálního obrázku na pozadí do složky médií Anki
+        image_ext = os.path.splitext(image_path)[1] or ".png"
+        image_name = f"io-bg-{uuid.uuid4().hex}{image_ext}"
         shutil.copy(image_path, os.path.join(self.col.media.dir(), image_name))
         
+        # 2. Úprava a zápis Original Mask (OM) SVG souboru
+        fixed_om_svg = SVGExporter.fix_svg_background(om_svg, image_name)
+        om_name = f"io-om-{uuid.uuid4().hex}.svg"
+        self.col.media.write_data(om_name, fixed_om_svg.encode("utf-8"))
+
         count = 0
         model = self.col.models.by_name(self.NOTE_TYPE_NAME)
         deck_id = mw.col.decks.get_current_id()
 
+        # 3. Zápis poznámek pro každou masku
         for i, (q_svg, a_svg) in enumerate(zip(q_svgs, a_svgs)):
             q_name = f"io-q-{uuid.uuid4().hex}.svg"
             a_name = f"io-a-{uuid.uuid4().hex}.svg"
-            self.col.media.write_data(q_name, q_svg.encode("utf-8"))
-            self.col.media.write_data(a_name, a_svg.encode("utf-8"))
+            
+            # Oprava base64 odkazů v SVG na lokální soubory
+            fixed_q_svg = SVGExporter.fix_svg_background(q_svg, image_name)
+            fixed_a_svg = SVGExporter.fix_svg_background(a_svg, image_name)
+            
+            # Zápis SVG souborů do složky médií Anki
+            self.col.media.write_data(q_name, fixed_q_svg.encode("utf-8"))
+            self.col.media.write_data(a_name, fixed_a_svg.encode("utf-8"))
 
             note = Note(self.col, model)
             note["ID"] = f"{uuid.uuid4().hex}-{i}"
-            note["question image"] = f'<img src="{image_name}">'
-            note["Original mask"] = f'<img src="{q_name}">' # Question View
-            note["Answer mask"] = f'<img src="{a_name}">'   # Answer View
-            
-            if i < len(card_data) and card_data[i]:
-                note["Remarks"] = str(card_data[i])
+            note["header"] = metadata.get("header", "")
+            note["footer"] = metadata.get("footer", "")
+            note["question image"] = f'<img src="{q_name}">'
+            note["Answer mask"] = f'<img src="{a_name}">'
+            note["Original mask"] = f'<img src="{om_name}">'
+            note["Remarks"] = metadata.get("Remarks", "")
+            note["Sources"] = metadata.get("Sources", "")
+            note["Extra"] = metadata.get("Extra", "")
 
             self.col.add_note(note, deck_id)
             count += 1

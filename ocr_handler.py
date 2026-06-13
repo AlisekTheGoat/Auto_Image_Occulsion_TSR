@@ -1,9 +1,9 @@
 import pytesseract
 import os
-import sys
 import platform
 import shutil
-from PIL import Image
+import re
+from PIL import Image, ImageEnhance
 from typing import List, Dict, Any, Optional
 from PyQt6.QtWidgets import QMessageBox
 
@@ -69,7 +69,6 @@ class OCRHandler:
 
         try:
             # 1. Předzpracování obrazu - POSÍLENÍ KONTRASTU A OSTROSTI
-            from PIL import ImageEnhance
             orig_img = Image.open(image_path)
             
             # Zvýšení kontrastu a ostrosti pro lepší čitelnost textu
@@ -89,7 +88,6 @@ class OCRHandler:
             num_boxes = len(data['level'])
 
             # Sběr surových slov - PŘÍSNĚJŠÍ FILTRACE
-            import re
             for i in range(num_boxes):
                 try:
                     conf = int(data['conf'][i])

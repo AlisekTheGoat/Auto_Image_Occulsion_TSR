@@ -1,211 +1,100 @@
-# 🧠 GEMINI.md - Auto Anki Image Occlusion
+🧠 GEMINI.md - Auto Anki Image Occlusion
 
----
+**📋 1. Přehled projektu & Strategické Cíle**
 
-## 📋 1. Přehled projektu & Strategické Cíle
+Tento projekt je pokročilý open-source doplněk (Add-on) pro Anki.
 
-Tento projekt je bezplatný open-source doplněk (Add-on) pro **Anki**.
+Cíl → Plná automatizace tvorby image occlusion kartiček pomocí OCR a moderního hybridního rozhraní.
 
-Cíl → **Plná automatizace** tvorby image occlusion kartiček pomocí **OCR**.
+Cílová skupina → Studenti medicíny (maximalizace rychlosti studia komplexních anatomických schémat).
 
-Cílová skupina → **Studenti medicíny** + high-volume learners (maximalizace rychlosti studia).
+UX/UI Standard → Plynulost a přesnost na úrovni moderních webových vektorových editorů, plná integrace do nativního Add Cards dialogu Anki.
 
-Inspirace → **Image Occlusion Enhanced (IOE)** + integrovaná AI/OCR inteligence.
+**🛠️ 2. Tech Stack & Hybridní Architektura plátna**
 
-UI/UX Cíl → Maximální **přehlednost**, čistota rozhraní a eliminace klikání (vše na 1 kliknutí přes kouzelnou hůlku 🪄).
+Pro eliminaci chyb PyQt6 při komplexní vektorové grafice (skákavé úchyty, sekavý freehand) přechází projekt na hybridní model.
 
----
+Technologická struktura doplňku:
 
-## 🛠️ 2. Tech Stack, Závislosti & Spouštěcí Režimy
+Python 3.9+ Backend → Zajišťuje OCR analýzu, registraci Note Type, správu médií a přímé zápisy do databáze Anki (add_note).
 
-Hlavní jazyk → **Python 3.9+** (plná kompatibilní s Anki ekosystémem).
+QWebEngineView (PyQt6) → Nativní okno Qt, které v doplňku slouží jako embedded webový prohlížeč.
 
-GUI Framework → **PyQt6 / Qt6** (nativně integrované v Anki).
+Fabric.js Engine (HTML5 Canvas) → Běží uvnitř QWebEngineView a zajišťuje grafickou část:
 
-OCR Engine → **Tesseract OCR** (knihovna `pytesseract`).
+100% plynulý resizing přes nativní bounding boxy.
 
-### Pravidlo přenositelnosti (Portable Mode)
+Bezchybné freehand/lasso kreslení masek.
 
-Vyhledávání binárky **Tesseractu** probíhá v tomto pořadí:
+Desktopový výběr tažením myši (rubber-band selection).
 
-1. Lokální složka doplňku `bin/tesseract/` (Windows/macOS) → **Nejvyšší priorita**.
-2. Systémové cesty (Fallback) → `/usr/bin/tesseract` nebo Homebrew cesty na macOS.
+Snadné seskupování (grouping) a zarovnávání objektů.
 
-### Canvas systém (Hybridní Architektura)
+QWebChannel Bridge → Obousměrný komunikační most pro přenos souřadnic a SVG dat mezi JavaScriptem a Pythonem.
 
-1. **Nativní PyQt6 plátno (`QGraphicsView`)** → Slouží pro pokročilé lokální kreslení, drag-and-drop a rychlé testování.
-2. **WebView Bridge (`pycmd`)** → Slouží pro přímou integraci do vnitřního HTML editoru Anki.
+**🔄 3. Nativní Anki Workflow (Add Cards Integration)**
 
----
+Doplněk se neotevírá z horní lišty Anki, ale je hluboce integrován do standardního procesu přidávání karet:
 
-## 📊 3. Komparativní Analýza Databází (Proč emulujeme IOE?)
+Postup uživatele (Step-by-Step):
 
-Doplněk implementuje klasickou architekturu **Image Occlusion Enhanced (IOE)**, protože nativní řešení Anki neposkytuje dostatečnou flexibilitu pro pokročilé medicínské popisy.
+Uživatel klikne na hlavní tlačítko Add v hlavním okně Anki.
 
-| Technický parametr / Vlastnost | Nativní Image Occlusion (Anki v23.10+)         | Image Occlusion Enhanced (Náš Add-on)           |
-| ------------------------------ | ---------------------------------------------- | ----------------------------------------------- |
-| **Název typu poznámky**        | `Auto Image Occlusion`                         | `Auto Image Occlusion Enhanced`                 |
-| **Struktura polí**             | Header, Image, Occlusion, Back Extra, Comments | 11 specifických polí (viz sekce 4)              |
-| **Reprezentace masek**         | Textový řetězec v poli `Occlusion`             | Vektorové soubory **SVG** v `collection.media`  |
-| **Vztah Note → Card**          | 1 Note = Více sourozeneckých karet             | 1 Maska = 1 Nezávislá Note (unikátní ID)        |
-| **Vliv na FSRS**               | Funguje "Bury Siblings"                        | Karty jsou zcela nezávislé → precizní hodnocení |
-| **Režie synchronizace**        | Extrémně nízká (text v SQLite)                 | Vyšší (generování fyzických SVG souborů)        |
+Vybere specifický Card Type → AutoImageOculsion. (není povinné)
 
----
+V editoru se zobrazí nativní pole typu poznámky (viz sekce 4).
 
-## 🗃️ 4. Datová Struktura Note Type & Šablony
+Editor Toolbar Injection → Na formátovací liště editoru se stále zobrazuje ikona Auto Image Occlusion (umístěná na samém konci lišty).
 
-Při spuštění doplňku v `__init__.py` probíhá kontrola existence Note Type `AutoImageOcculsion`. Pokud neexistuje, automaticky se vytvoří těchto **11 polí** v přesném pořadí:
+Po kliknutí na ikonu se otevře hybridní editor s načteným obrázkem z pole karty.
 
-1. `ID (hidden)` → UUID s indexem karty (`uuid-oa-1`).
-2. `Header` → Text nad obrázkem.
-3. `Image` → HTML reference na zdroj `<img src="base_image.png">`.
-4. `Question Mask` → HTML reference na aktivní masku `<img src="base_image-q1.svg">`.
-5. `Footer` → Text pod obrázkem.
-6. `Remarks` → Doplňující poznámky k dané struktuře.
-7. `Sources` → Zdroj (učebnice/atlas).
-8. `Extra 1` → Volitelné pole.
-9. `Extra 2` → Volitelné pole.
-10. `Answer Mask` → HTML reference na odkrytou masku `<img src="base_image-a1.svg">`.
-11. `Original Mask` → HTML reference na kompletní přehled masek `<img src="base_image-om.svg">`.
+Uživatel tvoří masky:
 
-### HTML Šablony Karet
+Automaticky přes tlačítko [Auto OCR] → detekce textu a vykreslení masek na plátno.
 
-**Lícová strana (Front Template):**
+Manuálně pomocí nástrojů [Rectangle] | [Ellipse] | [Freehand].
 
-```html
-<div class="io-wrapper">
-  {{#Header}}
-  <div id="io-header">{{Header}}</div>
-  {{/Header}}
-  <div id="io-container" style="position: relative; display: inline-block;">
-    <div id="io-original" style="visibility: hidden;">{{Image}}</div>
-    <div
-      id="io-overlay"
-      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-    >
-      {{Question Mask}}
-    </div>
-  </div>
-  {{#Footer}}
-  <div id="io-footer">{{Footer}}</div>
-  {{/Footer}}
-</div>
+Výběr karet → Uživatel označí masky a zvolí logiku generování:
 
-<script>
-  // Prevence probliknutí obrázku před načtením masky
-  var mask = document.querySelector("#io-overlay img");
-  function showImage() {
-    document.querySelector("#io-original").style.visibility = "visible";
-  }
-  if (mask === null || mask.complete) {
-    showImage();
-  } else {
-    mask.addEventListener("load", showImage);
-  }
-</script>
-```
+Hide One, Reveal One
 
-**Rubová strana (Back Template):**
+Hide All, Reveal All 
 
-```html
-<div class="io-wrapper">
-  {{#Header}}
-  <div id="io-header">{{Header}}</div>
-  {{/Header}}
-  <div id="io-container" style="position: relative; display: inline-block;">
-    <div>{{Image}}</div>
-    <div
-      id="io-overlay"
-      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-    >
-      {{Answer Mask}}
-    </div>
-  </div>
-  {{#Footer}}
-  <div id="io-footer">{{Footer}}</div>
-  {{/Footer}} {{#Remarks}}
-  <div class="io-extra"><strong>Remarks:</strong> {{Remarks}}</div>
-  {{/Remarks}} {{#Sources}}
-  <div class="io-extra"><strong>Sources:</strong> {{Sources}}</div>
-  {{/Sources}} {{#Extra 1}}
-  <div class="io-extra">{{Extra 1}}</div>
-  {{/Extra 1}}
-</div>
+Hide All, Reveal One
 
-<script>
-  // Kliknutím na obrázek dočasně skryješ/zobrazíš masku odpovědi
-  var toggle = function () {
-    var amask = document.querySelector("#io-overlay img");
-    if (amask) {
-      amask.style.display = amask.style.display === "none" ? "block" : "none";
-    }
-  };
-  document.querySelector("#io-container").addEventListener("click", toggle);
-</script>
-```
+Uložení karet → Kliknutím na [Add cards] v našem editoru se automaticky vygenerují SVG, uloží se do collection.media, zapíšou se nové karty do vybraného Decku a editor se zavře.
 
-**Styling (Všechny karty - CSS):**
+**🗃️ 4. Datová Struktura Note Type (9 Polí)**
 
-```css
-.card {
-  font-family: arial;
-  font-size: 20px;
-  text-align: center;
-  color: black;
-  background-color: white;
-}
-.io-wrapper {
-  display: inline-block;
-  margin: 0 auto;
-}
-#io-container img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-}
-.io-extra {
-  margin-top: 15px;
-  padding: 10px;
-  background-color: #f9f9f9;
-  border-left: 3px solid #3b82f6;
-  text-align: left;
-}
-```
+Při spuštění doplňku v **init**.py probíhá kontrola existence Note Type AutoImageOculsion.
 
----
+Pokud model v databázi chybí, automaticky se zaregistruje s těmito 9 poli v přesném pořadí:
 
-## 👁️‍🗨️ 5. Výpočetní OCR Jádro & Předzpracování (`ocr.py`)
+ID → Unikátní identifikátor sady masek (UUID).
 
-Kvalita detekce anatomických schémat závisí na předzpracování obrazu přes knihovnu **Pillow (PIL)**.
+header → Textové pole pro nadpis nad obrázkem.
 
-### Pipeline zpracování obrazu
+question image → HTML kód odkazující na podkladový obrázek překrytý červenou maskou aktivního dotazu (<img src="img_q_1.png">).
 
-1. Vstupní obrázek → Konverze do stupňů šedi (`Grayscale`) → Odstranění barevného šumu.
-2. Vyhlazovací **Lanczosův Upscaling (2x)** → Zvýšení hustoty pixelů pro malá písma.
-3. Spuštění Tesseractu s parametrem **PSM 12 (Sparse text with OSD)** → Optimalizace pro izolované textové štítky v diagramech.
+footer → Textové pole pod obrázkem.
 
-### Hierarchie a filtrace dat z TSV výstupu (`pytesseract.image_to_data`)
+Remarks → Doplňující poznámky pro studium.
 
-| Název sloupce v TSV | Význam v hierarchii OCR     | Pravidla filtrace a interpretace dat                                 |
-| ------------------- | --------------------------- | -------------------------------------------------------------------- |
-| `level`             | Hierarchický stupeň detekce | Filtrujeme výhradně úroveň **5 (Slovo)**.                            |
-| `block_num`         | Číslo prostorového bloku    | Identifikace koherentních vizuálních celků.                          |
-| `line_num`          | Číslo řádku v bloku         | Určuje slova ležící na stejné horizontální ose.                      |
-| `left` / `top`      | X / Y souřadnice v pixelech | Vzdálenost od levého / horního okraje upscalovaného obrazu.          |
-| `width` / `height`  | Šířka / výška v pixelech    | Geometrický rozměr detekovaného slova.                               |
-| `conf`              | Míra spolehlivosti (%)      | Hodnoty 0 až 100. Práh filtrace striktně nastaven na $>40$.          |
-| `text`              | Rozpoznaný textový řetězec  | Samotné slovo. Prázdné řetězce a samostatná interpunkce se zahazují. |
+Sources → Informace o zdroji (učebnice, atlas, strana).
 
----
+Extra → Další volitelné textové pole pro extra poznámky ke kartičce.
 
-## 📐 6. Prostorová Heuristika, Shlukování & SVG
+Answer mask → HTML kód odkazující na podkladový obrázek s odkrytou zkoušenou maskou (<img src="img_a_1.png">).
 
-Surová slova z Tesseractu se musí sloučit do víceslovných lékařských termínů (např. _Vena cava superior_) pomocí algoritmu **Box Merging**.
+Original mask → HTML kód odkazující na obrázek se všemi žlutými maskami pro celkový přehled (<img src="img_om.png">).
 
-### Matematický model shlukování slov do řádku
+**👁️‍Cairo 5. Výpočetní OCR Jádro & Anatomické Shlukování Slov**
 
-Mějme dvě slova $W_1$ a $W_2$ na stejném řádku (`line_num`) se souřadnicemi $[x_1, y_1, w_1, h_1]$ a $[x_2, y_2, w_2, h_2]$, kde $x_2 > x_1$.
+Pro medicínské snímky je klíčové, aby se samostatná slova neshlukovala chaoticky, ale tvořila logické víceslovné řetězce (např. Arteria laryngea superior).
+
+Algoritmus horizontálního řetězení (Phrase Clustering):
+
+Mějme dvě slova $W_1$ a $W_2$ na stejném řádku (line_num) se souřadnicemi $[x_1, y_1, w_1, h_1]$ a $[x_2, y_2, w_2, h_2]$, kde $x_2 > x_1$.
 
 Průměrná výška slov:
 
@@ -215,95 +104,75 @@ Horizontální mezera:
 
 $$G_{horiz} = x_2 - (x_1 + w_1)$$
 
-Podmínka pro sloučení do jednoho Bounding Boxu:
+Podmínka pro sloučení do jedné masky:
 
 $$G_{horiz} \le H_{avg} \times M_{horiz}$$
 
-> `config.json` default hodnoty → $M_{horiz} = 1.2$ (horizontální multiplikátor), $M_{vert} = 1.5$ (vertikální multiplikátor s podmínkou minimálně 30% horizontálního překryvu).
+Vertikální odchylka řádku:
 
-### Detekce kolizí (Intersection over Union - IoU)
+$$\Delta Y \le H_{avg} \times M_{vert}$$
 
-Zamezuje duplicitnímu překrývání masek. Pro novou masku $B_{new}$ a existující masku $B_{existing}$ platí:
+Default hodnoty v configu → $M_{horiz} = 1.2$ a $M_{vert} = 0.3$.
+Splnění obou podmínek spojí slova do jednoho kompaktního obdélníku namísto izolovaných fragmentů.
 
-$$IoU = \frac{\text{Obsah}(B_{new} \cap B_{existing})}{\text{Obsah}(B_{new} \cup B_{existing})}$$
+**📐 6. JS Canvas Engine (Fabric.js & Komunikace)**
 
-Pokud je
+Doplněk využívá lokální instanci Fabric.js načtenou v HTML šabloně uvnitř QWebEngineView.
 
-$$IoU > 0.4$$
+Klíčové vlastnosti JS Editoru:
 
-, nová maska se **zahodí**.
+Plynulý resizing → Zajištěn nativním transformačním matrixem Fabric.js (odstraňuje PyQt6 lagování).
 
-### Absolutní SVG Geometrie
+Rubber-band Selection → Možnost tažením myši na prázdné ploše označit více masek najednou.
 
-Pro zamezení posunu masek na mobilních zařízeních generujeme SVG s atributem `viewBox` odpovídajícím přesným pixelům původního obrázku:
+Group Objects → Kliknutím na [Group] se označené masky spojí do jedné logické entity (ideální pro zakrytí dlouhého popisku s šipkou).
 
-```xml
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 W_img H_img">
-  <rect x="left" y="top" width="width" height="height" fill="#FFD700" stroke="#000000" stroke-width="1.5" />
-</svg>
+Freehand Tool → Režim volné ruky kreslí hladkou křivku (smooth bezier path) převedenou na SVG element <path>.
 
-```
+Schéma komunikace přes QWebChannel:
 
-- **Original Mask (`-om.svg`)** → Všechny obdélníky jsou žluté (`#fffcc4`), krytí `opacity="1"`.
-- **Question Mask (`-q[idx].svg`)** → Aktivní obdélník je červený (`#fc4242`), ostatní jsou žluté.
-- **Answer Mask (`-a[idx].svg`)** → Aktivní obdélník má `display="none"`, ostatní jsou žluté.
+[PyQt6 Python Backend]
+│
+├── (1) Načtení obrázku → Posílá base64 data do JS plátna
+│
+├── (2) Kliknutí na [Auto OCR] → Spustí Tesseract → Vrací JSON souřadnic masek
+│
+└── (4) Kliknutí na [Add cards] ← Přijímá pole vygenerovaných SVG masek z JS
 
----
+**💾 7. Generování masek & Zápis do Anki DB**
 
-## ⚡ 7. Asynchronní Architektura & Bridge (`QueryOp`)
+Při uložení doplňku se vygenerují 3 stavy masek a zapíšou se jako samostatné notes pro každou vybranou masku (nebo skupinu masek).
 
-Zpracování OCR nesmí nikdy zablokovat hlavní UI vlákno Anki (prevence zamrznutí aplikace).
+Original mask (om.png) → Všechny masky vykresleny žlutou barvou (#fffcc4, opacity="0.8").
 
-Výpočetní operace na pozadí se provádí asynchronně přes `aqt.utils.QueryOp`.
+Question mask (q\_[idx].png) → Aktivní maska je červená (#fc4242), ostatní jsou žluté.
 
-### Workflow komunikace:
+Answer mask (a\_[idx].png) → Aktivní maska je skrytá (display="none"), ostatní jsou žluté.
 
-1. JavaScript ve WebView (`auto_io.js`) detekuje nástrojovou lištu a vloží tlačítko 🪄.
-2. Uživatel klikne na 🪄 → JS odešle zprávu backendu: `pycmd(JSON.stringify({action: "run_ocr", image: imageName}));`.
-3. Tlačítko se změní na ikonu načítání (⌛) a deaktivuje se.
-4. Python zachytí zprávu přes `WebView` bridge, spustí `QueryOp` na pozadí.
-5. Po úspěšném dokončení Python vrátí pole souřadnic a zavolá klientskou funkci `window.handleOcrResults(boxes);`.
-6. Pokud dojde k chybě (chybějící Tesseract, nepodporovaný formát), asynchronní callback vyvolá `QMessageBox.critical` s jasným popisem problému.
+Databázový zápis v Pythonu:
 
----
+# Pro každou generovanou kartu:
 
-## 🤖 8. Striktní Instrukce pro Gemini CLI
+note = mw.col.new_note(model_auto_io)
+note["ID"] = f"{uuid.uuid4()}"
+note["header"] = user_header_input
+note["question image"] = f'<img src="{generated_q_filename}">'
+note["Answer mask"] = f'<img src="{generated_a_filename}">'
+note["Original mask"] = f'<img src="{generated_om_filename}">'
+note["Remarks"] = remarks_input
+note["Sources"] = sources_input
+mw.col.add_note(note, target_deck_id)
 
-Při generování nebo refaktorování kódu tohoto projektu **MUSÍŠ** dodržovat následující pravidla:
+**🤖 8. Striktní Instrukce pro Gemini CLI**
 
-### 1. Role & Styl Kódu
+Při generování nebo refaktorování kódu tohoto projektu MUSÍŠ dodržovat následující pravidla:
 
-- Působíš jako **Lead MedTech Architect & Python Expert**.
-- Kód musí být čistě modulární, plně **type-hinted**, komentovaný a využívat moderní Anki hooks API.
+Striktní modularita → Upravuj vždy pouze jeden soubor na jeden turn.
 
-### 2. Limit délky souborů (Striktní Refaktorizace)
+Čistý otypovaný kód → Používej plný Python Type-Hinting a robustní ošetření chyb.
 
-- **Čistá logika (např. `ocr.py`)** → Max **300 řádků** kódu.
-- **Uživatelské rozhraní / Plátno (`canvas.py`)** → Max **500 řádků** kódu.
-- Pokud kód přesahuje limit, striktně ho rozděl do sub-modulů!
+Anki API standardy → Používej výhradně moderní hooks API a asynchronní QueryOp pro operace na pozadí.
 
-### 3. Standalone mode (Izolované testování UI)
+Komentáře → Veškerý kód musí obsahovat jasné a srozumitelné komentáře vysvětlující logiku algoritmu.
 
-- Modul `canvas.py` a další UI komponenty musí jít spustit jako samostatná aplikace bez běžícího Anki!
-- Používej bezpečné importy:
-
-```python
-try:
-    import aqt
-    from aqt import mw
-except ImportError:
-    # Režim Mockování / Spuštění čistého PyQt6 okna
-    mw = None
-
-```
-
-### 4. Pravidla pro Git Commity
-
-- Každý vygenerovaný kód musí na konci obsahovat návrh Git commit zprávy ve formátu **Conventional Commits**.
-- Příklady: `feat(ocr): pridano prostorove shlukovani slov`, `fix(canvas): osetreni nulovych souradnic`.
-
-### 5. Formátování textových výstupů (Pro tebe, Gemini!)
-
-- **Tučně** zvýrazňuj důležité pojmy.
-- Používej logické šipky (`→`, `↑`, `↓`, `←`) pro odstranění omáčky.
-- Každou myšlenku nebo položku strukturuj do **samostatného odstavce s 1 prázdným řádkem navíc** pro dokonalou scannability!
+docs(gemini.md): kompletni prepis architektury na hybridni model a integraci do add cards workflow

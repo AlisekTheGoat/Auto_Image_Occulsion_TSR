@@ -1,8 +1,7 @@
-from typing import Any, List
+from typing import List
 try:
-    from aqt import mw, gui_hooks
+    from aqt import gui_hooks
     from aqt.editor import Editor
-    from aqt.utils import showInfo
     ANKI_AVAILABLE = True
 except ImportError:
     ANKI_AVAILABLE = False
@@ -25,13 +24,11 @@ def on_init_buttons(buttons: List[str], editor: Editor) -> List[str]:
         id="auto_io_btn"
     )
     buttons.append(btn)
-    print("DEBUG: Auto Image Occlusion button added to list")
-    
     return buttons
 
 def open_occlusion_editor(editor: Editor) -> None:
     """Otevře PyQt6 editor a po zavření obnoví okno Add Cards."""
-    dialog = OcclusionDialog(editor.widget)
+    dialog = OcclusionDialog(editor.widget, editor)
     if dialog.exec():
         # Obnovení editoru, pokud byly přidány karty
         # Většinou se karty přidávají do decku přímo, 

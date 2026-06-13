@@ -1,5 +1,3 @@
-import sys
-import os
 
 try:
     from aqt import mw
